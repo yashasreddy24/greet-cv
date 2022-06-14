@@ -53,8 +53,8 @@ try:
 
         while capt.isOpened():
             ret, frame = capt.read()
-
-            results = holistic.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            roi = frame[:, red_start:green_end, :].copy()
+            results = holistic.process(cv2.cvtColor(roi, cv2.COLOR_BGR2RGB))
             try:
                 nose_x = results.pose_landmarks.landmark[mp_holistic.PoseLandmark.NOSE].x * width
                 nose_y = results.pose_landmarks.landmark[mp_holistic.PoseLandmark.NOSE].y * height
@@ -87,7 +87,7 @@ try:
                 pass
 
             # Drawing pose landmarks
-            mp_drawing.draw_landmarks(frame, results.pose_landmarks, mp_holistic.POSE_CONNECTIONS,
+            mp_drawing.draw_landmarks(roi, results.pose_landmarks, mp_holistic.POSE_CONNECTIONS,
                                       mp_drawing.DrawingSpec(color=(255, 0, 0), thickness=2, circle_radius=1),
                                       mp_drawing.DrawingSpec(color=(0, 0, 0), thickness=2, circle_radius=1)
                                       )
@@ -96,9 +96,12 @@ try:
                 cv2.putText(frame, text=display, org=(10, 50), fontFace=font, fontScale=2, color=(0,0,0),
                             thickness=2, lineType=cv2.LINE_AA)
 
+            frame[:, red_start:green_end, :] = roi
             # Red zone
             frame[:, red_start:red_end, :] = cv2.addWeighted(src1=frame[:, red_start:red_end, :],
                                                            alpha=0.8, src2=red_arr, beta=0.2, gamma=0)
+
+
 
             # Green Zone
             frame[:, green_start:green_end, :] = cv2.addWeighted(src1=frame[:, green_start:green_end, :],
