@@ -11,7 +11,7 @@ except ImportError as ie:
 # project dir
 project_dir = abspath(dirname(__name__))
 media_dir = join(project_dir, 'media')
-input_file = join(media_dir, '01.mp4')
+input_file = join(media_dir, '02.mp4')
 
 mp_drawing = mp.solutions.drawing_utils
 mp_holistic = mp.solutions.holistic
@@ -53,6 +53,11 @@ try:
 
         while capt.isOpened():
             ret, frame = capt.read()
+
+            # break out of while loop if video ends
+            if not ret:
+                break
+
             roi = frame[:, red_start:green_end, :].copy()
             results = holistic.process(cv2.cvtColor(roi, cv2.COLOR_BGR2RGB))
             try:
