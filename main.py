@@ -2,17 +2,19 @@ try:
     import os
     import math
     import traceback
+    import time
     import numpy as np
     import cv2
     import torch
     from os.path import dirname, abspath, join
+    from collections import namedtuple
 except ImportError as ie:
     print(ie)
 
 # project dir
 project_dir = abspath(dirname(__name__))
 media_dir = join(project_dir, 'media')
-input_file = join(media_dir, '08.mp4')
+input_file = join(media_dir, '09.mp4')
 
 display = None  # message
 window_name = "tracking window"
@@ -22,7 +24,15 @@ tracking_object = {}
 tracking_id = 0
 first_run = True
 temp_dict = {}
-timer = 0
+Greet_timer = namedtuple('Timer', ['wel_start', 'wel_status', 'by_start', 'by_status'])
+Greet_timer.wel_status, Greet_timer.by_status = [False] * 2
+
+# Custom yolo model
+model = torch.hub.load('ultralytics/yolov5', 'custom', path='./yolov5/runs/train/exp/weights/best.pt')
+
+# model params
+model.conf = 0.50  # NMS confidence threshold
+model.iou = 0.40 # NMS IoU threshold
 
 try:
     capt = cv2.VideoCapture(input_file)
@@ -46,20 +56,13 @@ try:
     font = cv2.FONT_HERSHEY_SIMPLEX
 
     # saving video
-    writer = cv2.VideoWriter(filename='tracked video4.mp4',
+    writer = cv2.VideoWriter(filename='tracked video3.mp4',
                              fourcc=cv2.VideoWriter_fourcc(*'mp4v'),
                              fps=25,
                              frameSize=(width, height))
     # full screen
     cv2.namedWindow(window_name, cv2.WND_PROP_FULLSCREEN)
     cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-
-    # Custom yolo model
-    model = torch.hub.load('ultralytics/yolov5', 'custom', path='./yolov5/runs/train/exp/weights/best.pt')
-
-    # model params
-    model.conf = 0.40  # NMS confidence threshold
-    model.iou = 0.45  # NMS IoU threshold
 
     while capt.isOpened():
         cp_cur_frame = []
@@ -70,9 +73,10 @@ try:
         if not ret:
             break
 
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # convert BGR color map to RGB color map
+        roi = frame[:, red_start:green_end, :]  # region of interest
 
-        roi = frame_rgb[:, red_start:green_end, :].copy() # region of interest
+        roi = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)  # convert BGR color map to RGB color map
+
         _, w1, _ = roi.shape
         middle = w1 / 2
 
@@ -100,10 +104,8 @@ try:
                         temp_dict['cord'] = (cx1, cy1)
                         if cx1 <= middle:
                             temp_dict['cur_zone'] = 'r'
-                            temp_dict['prev_zone'] = None
                         else:
                             temp_dict['cur_zone'] = 'g'
-                            temp_dict['prev_zone'] = None
                         tracking_object[tracking_id] = temp_dict.copy()
                         tracking_id += 1
 
@@ -128,17 +130,19 @@ try:
                             data_dict['cur_zone'] = 'r'
                             data_dict['prev_zone'] = 'g'
 
-                            if timer == 0:
+                            if not Greet_timer.by_status:
                                 display = 'Bye!'
-                                timer = 30
+                                Greet_timer.by_status = True
+                                Greet_timer.by_start = time.time()
 
                         elif pt[0] > middle and data_dict['cur_zone'] == 'r':
                             data_dict['cur_zone'] = 'g'
                             data_dict['prev_zone'] = 'r'
 
-                            if timer == 0:
+                            if not Greet_timer.wel_status:
                                 display = 'Welcome!'
-                                timer = 30
+                                Greet_timer.wel_status = True
+                                Greet_timer.wel_start = time.time()
 
                         object_exists = True
 
@@ -155,10 +159,8 @@ try:
                 temp_dict['cord'] = pt
                 if pt[0] <= middle:
                     temp_dict['cur_zone'] = 'r'
-                    temp_dict['prev_zone'] = None
                 else:
                     temp_dict['cur_zone'] = 'g'
-                    temp_dict['prev_zone'] = None
                 tracking_object[tracking_id] = temp_dict.copy()
                 tracking_id += 1
 
@@ -166,17 +168,22 @@ try:
             cv2.circle(roi, pt['cord'], 3, (137,0,0), -1)
             #cv2.putText(roi, str(obj_id), (pt['cord'][0], pt['cord'][1] - 7), 0, 0.5, (0,0,255),1)
 
-        roi = cv2.cvtColor(roi, cv2.COLOR_RGB2BGR)
-
-        frame[:, red_start:green_end, :] = roi
+        frame[:, red_start:green_end, :] = cv2.cvtColor(roi, cv2.COLOR_RGB2BGR)
 
         # Displays a message
-        if display:
-            cv2.putText(frame, text=display, org=(10, height - 50), fontFace=font, fontScale=2, color=(0,0,0),
+        if Greet_timer.wel_status:
+            cv2.putText(frame, text='Welcome!', org=(green_end + 20, height - 50), fontFace=font, fontScale=1.5, color=(0,0,0),
                         thickness=2, lineType=cv2.LINE_AA)
-            timer -= 1
-            if timer == 0:
-                display = None
+            if (time.time() - Greet_timer.wel_start) >= 2:
+                Greet_timer.wel_status = False
+                Greet_timer.wel_start = 0
+
+        if Greet_timer.by_status:
+            cv2.putText(frame, text='Bye!', org=(10, height - 50), fontFace=font, fontScale=2, color=(0,0,0),
+                        thickness=2, lineType=cv2.LINE_AA)
+            if (time.time() - Greet_timer.by_start) >= 2:
+                Greet_timer.by_status = False
+                Greet_timer.by_start = 0
 
         # Red zone
         frame[:, red_start:red_end, :] = cv2.addWeighted(src1=frame[:, red_start:red_end, :],
