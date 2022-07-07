@@ -12,17 +12,17 @@ except ImportError as ie:
 # project dir
 project_dir = abspath(dirname(__name__))
 media_dir = join(project_dir, 'media')
-input_file = join(media_dir, '03.mp4')
+input_file = join(media_dir, '08.mp4')
 
-prev_zone = None
-curr_zone = None
-display = None
+display = None  # message
 window_name = "tracking window"
 
 cp_prev_frame = []
 tracking_object = {}
 tracking_id = 0
 first_run = True
+temp_dict = {}
+timer = 0
 
 try:
     capt = cv2.VideoCapture(input_file)
@@ -46,7 +46,7 @@ try:
     font = cv2.FONT_HERSHEY_SIMPLEX
 
     # saving video
-    writer = cv2.VideoWriter(filename='tracked video1.mp4',
+    writer = cv2.VideoWriter(filename='tracked video4.mp4',
                              fourcc=cv2.VideoWriter_fourcc(*'mp4v'),
                              fps=25,
                              frameSize=(width, height))
@@ -58,25 +58,26 @@ try:
     model = torch.hub.load('ultralytics/yolov5', 'custom', path='./yolov5/runs/train/exp/weights/best.pt')
 
     # model params
-    model.conf = 0.25  # NMS confidence threshold
+    model.conf = 0.40  # NMS confidence threshold
     model.iou = 0.45  # NMS IoU threshold
 
     while capt.isOpened():
+        cp_cur_frame = []
+
         ret, frame = capt.read()
 
         # break out of while loop if video ends
         if not ret:
             break
 
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # convert BGR color map to RGB color map
 
-        roi = frame_rgb[:, red_start:green_end, :].copy()
+        roi = frame_rgb[:, red_start:green_end, :].copy() # region of interest
+        _, w1, _ = roi.shape
+        middle = w1 / 2
 
         results = model(roi)
-        predictions = results.pred[0]
-        boxes = predictions[:, :4] #x1, y1, x2, y2
-
-        cp_cur_frame = []
+        boxes = results.pred[0][:, :4]  #x1, y1, x2, y2
 
         for bbox in boxes:
             x1, y1, x2, y2 = bbox
@@ -86,20 +87,29 @@ try:
             cp_cur_frame.append((cx, cy))
 
             #cv2.circle(roi, (cx,cy), 3, (0,0,255), -1)
-            cv2.rectangle(roi, (int(x1),int(y1)), (int(x2),int(y2)), (0,255,0), 2)
+            # bounding box
+            cv2.rectangle(roi, (int(x1),int(y1)), (int(x2),int(y2)), (0, 255, 0), 2)
 
 
-        if first_run:
+        if first_run:  # Runs only at the begining of the frame
             for cx1, cy1 in cp_cur_frame:
                 for cx2, cy2 in cp_prev_frame:
                     distance = math.hypot(cx2-cx1, cy2-cy1)
 
                     if distance < 25:
-                        tracking_object[tracking_id] = (cx1,cy1)
+                        temp_dict['cord'] = (cx1, cy1)
+                        if cx1 <= middle:
+                            temp_dict['cur_zone'] = 'r'
+                            temp_dict['prev_zone'] = None
+                        else:
+                            temp_dict['cur_zone'] = 'g'
+                            temp_dict['prev_zone'] = None
+                        tracking_object[tracking_id] = temp_dict.copy()
                         tracking_id += 1
 
             if len(tracking_object) != 0:
                 first_run = False
+
         else:
             tracking_object_copy = tracking_object.copy()
             cp_cur_frame_copy = cp_cur_frame.copy()
@@ -107,11 +117,29 @@ try:
             for obj_id, pt2 in tracking_object_copy.items():
                 object_exists = False
                 for pt in cp_cur_frame_copy:
-                    distance = math.hypot(pt2[0] - pt[0], pt2[1] - pt[1])
+                    distance = math.hypot(pt2['cord'][0] - pt[0], pt2['cord'][1] - pt[1])
 
                     # update object position
                     if distance < 25:
-                        tracking_object[obj_id] = pt
+                        data_dict = tracking_object[obj_id]
+                        data_dict['cord'] = pt
+
+                        if pt[0] < middle and data_dict['cur_zone'] == 'g':
+                            data_dict['cur_zone'] = 'r'
+                            data_dict['prev_zone'] = 'g'
+
+                            if timer == 0:
+                                display = 'Bye!'
+                                timer = 30
+
+                        elif pt[0] > middle and data_dict['cur_zone'] == 'r':
+                            data_dict['cur_zone'] = 'g'
+                            data_dict['prev_zone'] = 'r'
+
+                            if timer == 0:
+                                display = 'Welcome!'
+                                timer = 30
+
                         object_exists = True
 
                         if pt in cp_cur_frame:
@@ -122,20 +150,34 @@ try:
                 if not object_exists:
                     tracking_object.pop(obj_id)
 
+            # creating new ids
             for pt in cp_cur_frame:
-                tracking_object[tracking_id] = pt
+                temp_dict['cord'] = pt
+                if pt[0] <= middle:
+                    temp_dict['cur_zone'] = 'r'
+                    temp_dict['prev_zone'] = None
+                else:
+                    temp_dict['cur_zone'] = 'g'
+                    temp_dict['prev_zone'] = None
+                tracking_object[tracking_id] = temp_dict.copy()
                 tracking_id += 1
 
         for obj_id, pt in tracking_object.items():
-            cv2.circle(roi, pt, 3, (0,0,255), -1)
-            cv2.putText(roi, str(obj_id), (pt[0], pt[1] - 7), 0, 0.5, (0,0,255),1)
-
-        if display:
-            cv2.putText(frame, text=display, org=(10, 50), fontFace=font, fontScale=2, color=(0,0,0),
-                        thickness=2, lineType=cv2.LINE_AA)
+            cv2.circle(roi, pt['cord'], 3, (137,0,0), -1)
+            #cv2.putText(roi, str(obj_id), (pt['cord'][0], pt['cord'][1] - 7), 0, 0.5, (0,0,255),1)
 
         roi = cv2.cvtColor(roi, cv2.COLOR_RGB2BGR)
+
         frame[:, red_start:green_end, :] = roi
+
+        # Displays a message
+        if display:
+            cv2.putText(frame, text=display, org=(10, height - 50), fontFace=font, fontScale=2, color=(0,0,0),
+                        thickness=2, lineType=cv2.LINE_AA)
+            timer -= 1
+            if timer == 0:
+                display = None
+
         # Red zone
         frame[:, red_start:red_end, :] = cv2.addWeighted(src1=frame[:, red_start:red_end, :],
                                                        alpha=0.8, src2=red_arr, beta=0.2, gamma=0)
@@ -144,11 +186,16 @@ try:
         frame[:, green_start:green_end, :] = cv2.addWeighted(src1=frame[:, green_start:green_end, :],
                                                        alpha=0.8, src2=green_arr, beta=0.2, gamma=0)
 
-        # cp previous frame
+        # center points list previous frame
         cp_prev_frame = cp_cur_frame.copy()
 
         writer.write(frame)
         cv2.imshow(window_name, frame)
+
+        # global variables
+        temp_dict.clear()
+        if tracking_id > 1000:
+            tracking_id = 1
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
